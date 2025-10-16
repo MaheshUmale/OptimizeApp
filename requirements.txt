@@ -1,0 +1,13 @@
+numpy
+pandas
+tradingview-screener
+rookiepy
+pymongo
+pytz
+upstox-client
+flask
+simplejson
+websockets
+requests
+motor
+protobuf
