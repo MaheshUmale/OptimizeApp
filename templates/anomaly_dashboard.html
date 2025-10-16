@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anomaly Box Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Define an extra-small font size utility */
+        .text-2xs { font-size: 0.65rem; } 
+        .text-3xs { font-size: 0.55rem; } /* Even smaller for corner text */
+        
+        /* Custom scrollbar - Unified with indigo accent */
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; } /* indigo-500 */
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; } /* slate-800 */
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; } /* slate-900 */
+        
+        /* ALERT BOX Styles for high density */
+        .alert-box {
+            width: 7rem; /* Slightly wider for better readability */
+            height: 5.5rem; /* Slightly taller */
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
+            border-width: 2px; /* Border for direction color */
+        }
+        
+        /* Hover effect to highlight and bring forward the box */
+        .alert-box:hover {
+            transform: scale(1.08); /* Adjusted scale */
+            z-index: 10;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.6); /* Stronger indigo glow */
+        }
+
+        /* Ticker Name in the center */
+        .alert-ticker {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 90%;
+            line-height: 1;
+        }
+
+        /* Chart link overlay */
+        .chart-link-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 5; /* Above text, below hover border */
+        }
+
+        /* Unified Button Styles */
+        .btn-primary-ghost {
+            background-color: #334155; /* slate-700 */
+            color: white;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+        .btn-primary-ghost:hover { background-color: #475569; } /* slate-600 */
+        .btn-primary-active {
+            background-color: #6366f1; /* indigo-500 */
+            color: white;
+            font-weight: 600;
+        }
+        .btn-primary-active:hover { background-color: #4f46e5; } /* indigo-600 */
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen p-3">
+
+    <div class="max-w-7xl mx-auto">
+        
+        <header class="mb-4 flex justify-between items-center border-b border-gray-700 pb-2">
+            <div>
+                <h1 class="text-2xl font-extrabold text-indigo-400 tracking-tight">
+                    ANOMALY BOX MONITOR
+                </h1>
+                <p class="text-xs text-gray-500">Direction & RVOL Coded</p>
+            </div>
+            <div class="space-x-2">
+                <a href="/squeeze_dashboard" class="text-sm text-gray-400 hover:text-indigo-400 transition">Squeeze Heatmap</a>
+                <a href="/" class="text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold py-1.5 px-3 rounded-md transition">Home</a>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-3 gap-3 mb-4">
+            <div class="bg-slate-800 p-3 rounded-lg border-l-4 border-red-500 shadow-lg">
+                <p class="text-sm font-medium text-gray-400">Total Alerts</p>
+                <p class="text-xl font-bold text-white mt-1" id="stat-total-alerts">0</p>
+            </div>
+            <div class="bg-slate-800 p-3 rounded-lg border-l-4 border-green-500 shadow-lg">
+                <p class="text-sm font-medium text-gray-400">UP Moves</p>
+                <p class="text-xl font-bold text-white mt-1" id="stat-up-moves">0</p>
+            </div>
+            <div class="bg-slate-800 p-3 rounded-lg border-l-4 border-yellow-500 shadow-lg">
+                <p class="text-sm font-medium text-gray-400">Down Moves</p>
+                <p class="text-xl font-bold text-white mt-1" id="stat-down-moves">0</p>
+            </div>
+        </div>
+
+        <div class="mb-4 flex justify-between items-center space-x-2">
+            <div class="flex space-x-1">
+                <button data-filter="all" id="filter-all" class="filter-btn px-3 py-1 text-sm font-medium rounded-md btn-primary-active transition">
+                    ALL
+                </button>
+                <button data-filter="up" id="filter-up" class="filter-btn px-3 py-1 text-sm font-medium rounded-md btn-primary-ghost transition">
+                    UP
+                </button>
+                <button data-filter="down" id="filter-down" class="filter-btn px-3 py-1 text-sm font-medium rounded-md btn-primary-ghost transition">
+                    DOWN
+                </button>
+            </div>
+            <input type="text" id="ticker-search" placeholder="Filter Name/Ticker"
+                   class="w-36 sm:w-56 px-3 py-1 text-sm bg-slate-700 text-white rounded-md border border-slate-600 placeholder-gray-500 focus:ring-0 focus:border-indigo-500 transition">
+            
+            <p class="text-xs text-gray-500" id="last-updated">Refreshed: N/A</p>
+        </div>
+        
+        <div id="alerts-container" class="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-3 custom-scrollbar h-[75vh] overflow-y-auto p-1">
+            </div>
+        
+    </div>
+
+    <script>
+        // Global state
+        let allAlerts = [];
+        let currentFilter = 'all';
+        const filterButtons = document.querySelectorAll('.filter-btn');
+        const searchInput = document.getElementById('ticker-search');
+        const REFRESH_INTERVAL = 5000; // 5 seconds
+
+        // Helper function to map alert level to background color (Updated to use unified color range)
+        function getBackgroundColor(level) {
+            switch (level) {
+                case 'CRITICAL': return 'bg-red-900/50';
+                case 'HIGH': return 'bg-orange-800/50';
+                case 'MEDIUM': return 'bg-yellow-700/50';
+                default: return 'bg-slate-800/50'; // Default to a semi-transparent dark slate
+            }
+        }
+
+        // --- Data Fetching (Mocked to show structure) ---
+        async function fetchAlerts() {
+            try {
+                // *** In a real application, you would uncomment the line below ***
+                const response = await fetch('/api/alerts'); 
+ 
+
+                const rawAlerts = await response.json();
+
+                // // *** Using Mock Data based on user's sample structure ***
+                // const rawAlerts = [
+                //     { "type": "BIG_MOVE", "ticker": "INE148I01020", "name": "SAMMAAN CAPITAL LIMITED", "tradingname": "SAMMAANCAP", "time_ist": "13:56:42.252", "direction": "DOWN", "volume_multiplier": 300, "price_change": -0.99, "level": "CRITICAL" },
+                //     { "type": "VOLUME_SPIKE", "ticker": "INE021A01026", "name": "HDFC BANK", "tradingname": "HDFCBANK", "time_ist": "13:58:10.123", "direction": "UP", "volume_multiplier": 50, "price_change": 1.25, "level": "HIGH" },
+                //     { "type": "BIG_MOVE", "ticker": "INE009A01021", "name": "ICICI BANK", "tradingname": "ICICIBANK", "time_ist": "13:59:05.500", "direction": "UP", "volume_multiplier": 150, "price_change": 0.55, "level": "CRITICAL" },
+                //     // { "type": "PRICE_EXTREME", "ticker": "INE217Z01011", "name": "ZOMATO", "tradingname": "ZOMATO", "time_ist": "14:00:30.987", "direction": "DOWN", "volume_multiplier": 12, "price_change": -0.15, "level": "MEDIUM" },
+                //     { "type": "BIG_MOVE", "ticker": "INE040T01027", "name": "TATAPOWER", "tradingname": "TATAPOWER", "time_ist": "14:01:15.400", "direction": "UP", "volume_multiplier": 450, "price_change": 2.10, "level": "CRITICAL" },
+                //     { "type": "VOLUME_SPIKE", "ticker": "INE002A01018", "name": "RELIANCE INDUSTRIES LTD", "tradingname": "RELIANCE", "time_ist": "14:02:00.000", "direction": "DOWN", "volume_multiplier": 20, "price_change": -0.88, "level": "HIGH" },
+                //     { "type": "PRICE_EXTREME", "ticker": "INE001A01018", "name": "STATE BANK OF INDIA", "tradingname": "SBIN", "time_ist": "14:03:00.000", "direction": "UP", "volume_multiplier": 5, "price_change": 0.20, "level": "MEDIUM" },
+                // ];
+                
+                // Sort by level (CRITICAL first)
+                const levelOrder = { 'CRITICAL': 3, 'HIGH': 2, 'MEDIUM': 1, 'LOW': 0 };
+                allAlerts = rawAlerts.sort((a, b) => levelOrder[b.level] - levelOrder[a.level]);
+
+                // Update last updated time
+                document.getElementById('last-updated').textContent = `Refreshed: ${new Date().toLocaleTimeString().slice(0, -3)}`;
+
+                applyFiltersAndRender();
+
+            } catch (error) {
+                console.error("Failed to fetch alerts:", error);
+                document.getElementById('alerts-container').innerHTML = '<p class="text-red-500 col-span-full p-4 text-sm">Error fetching alerts. Check API.</p>';
+            }
+        }
+
+        // --- Filtering and Rendering ---
+        function applyFiltersAndRender() {
+            let filteredAlerts = allAlerts;
+            const searchTerm = searchInput.value.toLowerCase();
+            
+            // 1. Apply button filters
+            if (currentFilter === 'up') {
+                filteredAlerts = filteredAlerts.filter(alert => alert.direction === 'UP');
+            } else if (currentFilter === 'down') {
+                filteredAlerts = filteredAlerts.filter(alert => alert.direction === 'DOWN');
+            }
+            
+            // 2. Apply search filter
+            if (searchTerm) {
+                filteredAlerts = filteredAlerts.filter(alert => 
+                    (alert.tradingname || '').toLowerCase().includes(searchTerm) ||
+                    (alert.ticker || '').toLowerCase().includes(searchTerm)
+                );
+            }
+
+            renderAlerts(filteredAlerts);
+        }
+
+        function renderAlerts(alerts) {
+            const container = document.getElementById('alerts-container');
+            container.innerHTML = '';
+            
+            let upMoves = 0;
+            let downMoves = 0;
+
+            alerts.forEach(alert => {
+                const ticker = alert.ticker || 'N/A';
+                const tradingName = alert.tradingname || ticker; 
+                const logoEl = alert.logo ? `<img src="${alert.logo}" class="w-6 h-6 mr-3 rounded-full">` : `<div class="w-6 h-6 mr-3 rounded-full bg-gray-600"></div>`;
+                const tradingViewUrl =alert.URL? alert.URL: `https://www.tradingview.com/chart/?symbol=NSE%3A${tradingName}`; 
+                // --- 1. Direction and Color ---
+                const isUp = alert.direction === 'UP';
+                const directionColor = isUp ? 'border-green-500' : 'border-red-500';
+                const directionSymbol = isUp ? '▲' : '▼';
+                if (isUp) { upMoves++; } else { downMoves++; }
+                
+                // --- 2. Background and Level ---
+                const bgColor = getBackgroundColor(alert.level);
+
+                // --- 3. Icons and Data ---
+                const rvol = (alert.volume_multiplier || 1).toFixed(0);
+                const typeIcon = alert.type === 'BIG_MOVE' ? '⚡' : '⏶'; // Use different icons for context
+                const priceChangeValue = Math.abs(alert.price_change || 0).toFixed(2);
+                const timeStr = (alert.time_ist || '00:00').slice(0, 5);
+                const alertTypeShort = (alert.type || 'Alert').replace('_', ' ').slice(0, 10).toUpperCase();
+
+                
+
+                // --- 5. Render the Alert Box HTML ---
+                const alertBox = `
+                    <div class="alert-box rounded-lg text-white ${bgColor} ${directionColor} shadow-xl">
+                        
+                        <div class="absolute top-1 left-1 text-xs font-extrabold text-indigo-300">
+                            ${typeIcon}
+                        </div>
+                        
+                        <div class="absolute top-1 right-1 text-3xs font-extrabold text-yellow-300">
+                            ${rvol}x
+                        </div>
+                        
+                        <div class="alert-ticker text-center">
+                            ${logoEl}
+                            <span class="text-base font-extrabold truncate w-full block">${tradingName}</span>
+                            <span class="text-3xs text-gray-400 block mt-0.5">${alertTypeShort}</span>
+                        </div>
+                        
+                        <div class="absolute bottom-1 left-1 flex items-center text-sm ${isUp ? 'text-green-400' : 'text-red-400'}">
+                            <span class="mr-1">${directionSymbol}</span>
+                            <span class="text-xs font-semibold">${priceChangeValue}%</span>
+                        </div>
+
+                        <div class="absolute bottom-1 right-1 text-3xs text-gray-400">
+                            ${timeStr}
+                        </div>
+
+                        <a href="${tradingViewUrl}" target="_blank" class="chart-link-overlay" title="View ${tradingName} Chart"></a>
+                    </div>
+                `;
+                container.innerHTML += alertBox;
+            });
+
+            // Update the Stat Cards
+            document.getElementById('stat-total-alerts').textContent = allAlerts.length;
+            document.getElementById('stat-up-moves').textContent = upMoves;
+            document.getElementById('stat-down-moves').textContent = downMoves;
+        }
+
+        // --- Initialization and Event Handlers ---
+        
+        function handleFilterClick(event) {
+            const newFilter = event.currentTarget.dataset.filter;
+            if (newFilter === currentFilter) return; 
+            
+            currentFilter = newFilter;
+            
+            // Update button styles to use the new unified classes
+            filterButtons.forEach(btn => {
+                if (btn.dataset.filter === currentFilter) {
+                    btn.classList.add('btn-primary-active');
+                    btn.classList.remove('btn-primary-ghost');
+                } else {
+                    btn.classList.remove('btn-primary-active');
+                    btn.classList.add('btn-primary-ghost');
+                }
+            });
+            
+            applyFiltersAndRender();
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            // Attach filter listeners
+            filterButtons.forEach(btn => {
+                btn.addEventListener('click', handleFilterClick);
+            });
+            
+            // Attach search listener
+            searchInput.addEventListener('input', applyFiltersAndRender);
+
+            // Set initial filter style (to 'all')
+            // Programmatically click the 'all' button to set initial state and styles
+            document.getElementById('filter-all').click();
+
+            // Initial fetch and set interval for real-time updates
+            fetchAlerts(); 
+            setInterval(fetchAlerts, REFRESH_INTERVAL); 
+        });
+    </script>
+</body>
+</html>

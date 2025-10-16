@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Anomaly Dashboard</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for better visibility */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #6366f1; /* Indigo-500 */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1f2937; /* Gray-800 */
+        }
+        /* Inter font setup */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-4 sm:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-6">
+            <h1 class="text-4xl font-extrabold text-indigo-400 mb-2 tracking-tight">
+                Live Anomaly Alerts Monitor
+            </h1>
+            <p class="text-gray-400">
+                Real-time signals fetched from MongoDB's `anomaly_alerts` collection.
+            </p>
+            <div id="status-bar" class="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 bg-gray-800 rounded-lg shadow-lg">
+                <a href="/">HOME</a>
+                <span id="update-status" class="text-sm font-medium text-green-400 mb-2 sm:mb-0">Loading...</span>
+                <span class="text-xs text-gray-500">Auto-refresh: 3s | Grouping Window: 60s</span>
+            </div>
+        </header>
+        
+        <!-- Filter Controls -->
+        <div class="flex flex-wrap gap-3 mb-6">
+            <button id="filter-all" data-filter="ALL" class="filter-btn bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition shadow-md">
+                All Alerts
+            </button>
+            <button id="filter-big-move" data-filter="BIG_MOVE" class="filter-btn bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition shadow-md">
+                Big Move
+            </button>
+            <button id="filter-accumulation" data-filter="ACCUMULATION" class="filter-btn bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition shadow-md">
+                Accumulation
+            </button>
+        </div>
+
+        <!-- Alerts Table -->
+        <div class="bg-gray-800 shadow-xl rounded-xl overflow-hidden">
+            <div class="overflow-x-auto custom-scrollbar max-h-[80vh]">
+                <table class="min-w-full divide-y divide-gray-700">
+                    <thead class="bg-gray-700 sticky top-0 z-10">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-300 w-1/6">Time (IST)</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-300 w-1/4">Symbol & Hits</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-300 w-1/6">Type</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-300 w-1/6">Multiplier</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-300 w-1/6">Volume</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-300 w-1/6">Direction</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alerts-table-body" class="divide-y divide-gray-700">
+                        <!-- Alert rows will be injected here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const tableBody = document.getElementById('alerts-table-body');
+        const updateStatus = document.getElementById('update-status');
+        const filterButtons = document.querySelectorAll('.filter-btn');
+        const API_URL = '/api/alerts';
+        const GROUPING_WINDOW_SECONDS =120; // 1 minute window for combining alerts
+        
+        let currentFilter = 'ALL'; 
+        
+        // --- Core Alert Rendering Helpers ---
+
+        function getAlertClasses(alert) {
+            if (alert.type === 'BIG_MOVE' && alert.level === 'CRITICAL') {
+                return {
+                    row: 'bg-red-900/30 hover:bg-red-900/50 transition duration-150',
+                    type: 'text-red-400 font-bold bg-red-900 rounded-full px-2 py-0.5',
+                    direction: alert.direction === 'UP' ? 'text-green-400' : 'text-red-400'
+                };
+            }
+            if (alert.type === 'ACCUMULATION' && alert.level === 'WARNING') {
+                return {
+                    row: 'bg-yellow-900/20 hover:bg-yellow-900/40 transition duration-150',
+                    type: 'text-yellow-400 font-semibold bg-yellow-900/20 rounded-full px-2 py-0.5',
+                    direction: 'text-gray-500' // Neutral for accumulation
+                };
+            }
+            return {
+                row: 'bg-gray-800 hover:bg-gray-700 transition duration-150',
+                type: 'text-gray-300',
+                direction: 'text-gray-500'
+            };
+        }
+
+        function createAlertRow(alert) {
+            const classes = getAlertClasses(alert);
+            const row = document.createElement('tr');
+            row.className = classes.row;
+
+            // 1. Time Cell
+            const timeCell = document.createElement('td');
+            timeCell.className = 'px-4 py-3 whitespace-nowrap text-sm text-gray-300 font-mono';
+            try {
+                timeCell.textContent = alert.time_ist //.split(' ')[1] || 'N/A';
+            } catch {
+                timeCell.textContent = 'N/A';
+            }
+            row.appendChild(timeCell);
+
+            // 2. Symbol & Hits Cell (Updated for readability, hits counter, and TradingView link)
+            const symbolCell = document.createElement('td');
+            symbolCell.className = 'px-4 py-3 whitespace-nowrap text-sm font-medium text-white flex items-center';
+            
+            // Generate TradingView URL: Note: Assumes NSE for Indian stocks
+            const tradingViewUrl = `https://in.tradingview.com/chart/N8zfIJVK/?symbol=NSE%3A${alert.tradingname}`;
+            
+            symbolCell.innerHTML = `
+                <a href="${tradingViewUrl}" target="_blank" class="font-bold tracking-wider text-indigo-300 hover:text-indigo-400 transition duration-150">
+                    ${alert.name}
+                </a>
+                <span class="text-gray-400 text-xs ml-1 hidden sm:inline">(${alert.ticker})</span>
+                ${alert.hits > 1 ? 
+                    `<span class="ml-2 px-2 py-0.5 text-xs font-bold text-indigo-200 bg-indigo-700/50 rounded-full shadow-inner">
+                        ${alert.hits} Hits
+                    </span>` : ''}
+            `;
+            row.appendChild(symbolCell);
+
+            // 3. Type Cell
+            const typeCell = document.createElement('td');
+            typeCell.className = 'px-4 py-3 whitespace-nowrap text-xs';
+            typeCell.innerHTML = `<span class="${classes.type}">${alert.type.replace('_', ' ')}</span>`;
+            row.appendChild(typeCell);
+            
+            // 4. Multiplier Cell
+            const multiplier = alert.volume_multiplier || 1.0;
+            const multiplierCell = document.createElement('td');
+            multiplierCell.className = 'px-4 py-3 whitespace-nowrap text-sm text-right font-semibold';
+            multiplierCell.textContent = `${multiplier.toFixed(1)}x`;
+            row.appendChild(multiplierCell);
+            
+            // 5. Volume Cell
+            const volumeCell = document.createElement('td');
+            volumeCell.className = 'px-4 py-3 whitespace-nowrap text-sm text-right text-gray-400';
+            volumeCell.textContent = alert.volume ? alert.volume.toLocaleString() : '-';
+            row.appendChild(volumeCell);
+
+            // 6. Direction Cell
+            const directionCell = document.createElement('td');
+            directionCell.className = `px-4 py-3 whitespace-nowrap text-sm font-bold text-center ${classes.direction}`;
+            directionCell.textContent = alert.direction ? alert.direction : '-';
+            row.appendChild(directionCell);
+
+            return row;
+        }
+
+        // --- Grouping Logic (for combining alerts) ---
+
+        function groupAlerts(alerts) {
+            if (alerts.length === 0) return [];
+            
+            const grouped = [];
+            
+            // NOTE: Alerts are assumed to be sorted by time (newest first) from the API.
+            for (const alert of alerts) {
+                const currentTime = new Date(alert.timestamp_utc).getTime();
+                let groupedIntoExisting = false;
+
+                // Check the last group (which is the most recent alert of its kind)
+                if (grouped.length > 0) {
+                    const lastGroup = grouped[grouped.length - 1];
+                    const lastGroupTime = new Date(lastGroup.timestamp_utc).getTime();
+                    
+                    // Group if same ticker AND within the time window
+                    const timeDifferenceSeconds = (lastGroupTime - currentTime) / 1000;
+                    
+                    if (lastGroup.ticker === alert.ticker && timeDifferenceSeconds <= GROUPING_WINDOW_SECONDS) {
+                        lastGroup.hits += 1;
+                        // Keep the rest of the alert data (time, volume, etc.) as the most recent one in the group
+                        groupedIntoExisting = true;
+                    }
+                }
+
+                if (!groupedIntoExisting) {
+                    // Start a new group
+                    grouped.push(Object.assign({}, alert, { hits: 1 }));
+                }
+            }
+            return grouped;
+        }
+
+        // --- Rendering and Filtering ---
+
+        function renderAlerts(alerts) {
+            tableBody.innerHTML = ''; 
+            
+            const filteredAlerts = alerts.filter(alert => {
+                if (currentFilter === 'ALL') return true;
+                return alert.type === currentFilter;
+            });
+            
+            if (filteredAlerts.length === 0) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.innerHTML = `<td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                                        No ${currentFilter !== 'ALL' ? currentFilter.replace('_', ' ') : ''} anomalies detected.
+                                     </td>`;
+                tableBody.appendChild(emptyRow);
+            } else {
+                filteredAlerts.forEach(alert => {
+                    tableBody.appendChild(createAlertRow(alert));
+                });
+            }
+        }
+
+        async function fetchAlerts() {
+            try {
+                updateStatus.textContent = 'Fetching new data...';
+                updateStatus.classList.remove('text-green-400', 'text-red-400');
+                updateStatus.classList.add('text-yellow-400');
+
+                const response = await fetch(API_URL);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const rawAlerts = await response.json();
+                
+                // 1. Group the raw alerts
+                const groupedAlerts = groupAlerts(rawAlerts);
+                
+                // 2. Render the grouped and filtered alerts
+                renderAlerts(groupedAlerts);
+                
+                const now = new Date().toLocaleTimeString();
+                updateStatus.textContent = `Live: Last updated ${now}`;
+                updateStatus.classList.remove('text-yellow-400', 'text-red-400');
+                updateStatus.classList.add('text-green-400');
+
+
+            } catch (error) {
+                console.error("Failed to fetch anomaly alerts:", error);
+                updateStatus.textContent = `Error: Cannot connect to API (${new Date().toLocaleTimeString()})`;
+                updateStatus.classList.remove('text-green-400', 'text-yellow-400');
+                updateStatus.classList.add('text-red-400');
+            }
+        }
+        
+        // --- Event Handlers ---
+        
+        function handleFilterClick(event) {
+            const newFilter = event.currentTarget.dataset.filter;
+            if (newFilter === currentFilter) return; // No change
+            
+            currentFilter = newFilter;
+            
+            // Update button styles
+            filterButtons.forEach(btn => {
+                if (btn.dataset.filter === currentFilter) {
+                    btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                    btn.classList.remove('bg-gray-700', 'hover:bg-gray-600');
+                } else {
+                    btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                    btn.classList.add('bg-gray-700', 'hover:bg-gray-600');
+                }
+            });
+            
+            // Re-fetch (which will re-group and re-render)
+            fetchAlerts();
+        }
+        
+        // --- Initialization ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Attach filter listeners
+            filterButtons.forEach(btn => {
+                btn.addEventListener('click', handleFilterClick);
+            });
+            
+            // Set initial filter style
+            document.getElementById('filter-all').click();
+
+            // Initial fetch and set interval for real-time updates
+            fetchAlerts(); 
+            setInterval(fetchAlerts, 5000); // Refresh every 3 seconds
+        });
+    </script>
+</body>
+</html>
