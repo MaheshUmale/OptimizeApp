@@ -1,0 +1,44 @@
+# --- API & WSS ---
+ACCESS_TOKEN = "YOUR_ACCESS_TOKEN_HERE"  # Replace with your actual token
+WSS_URL = "wss://api-v2.upstox.com/feed/api/v3/ws"
+
+# --- DATABASE ---
+MONGO_URI = "mongodb://localhost:27017/"
+DATABASE_NAME = "upstox_data"
+TICKS_COLLECTION_NAME = "upstox_ticks"
+ALERTS_COLLECTION_NAME = "anomaly_alerts"
+SQUEEZE_CONTEXT_COLLECTION_NAME = "squeeze_context"
+DB_FILE = "data/squeeze_history.db"
+
+# --- SCANNER SETTINGS ---
+SCANNER_SETTINGS = {
+    "market": "india",
+    "exchange": "NSE",
+    "min_price": 20,
+    "max_price": 10000,
+    "min_volume": 50000,
+    "min_value_traded": 10000000
+}
+
+# --- ANOMALY DETECTION ---
+BAR_INTERVAL_SECONDS = 30
+HISTORY_SIZE = 600
+VOLUME_MULTIPLIER_THRESHOLD = 7.0
+PRICE_MULTIPLIER_THRESHOLD = 7.0
+ACCUMULATION_VOLUME_THRESHOLD = 2.0
+ACCUMULATION_PRICE_RANGE_MAX_MULTIPLIER = 0.75
+MIN_VOLUME_THRESHOLD = 1000
+
+# --- FILE PATHS ---
+INSTRUMENTS_CSV_PATH = "data/instruments.csv"
+BBSCAN_FIRED_FILE_PATTERN = "BBSCAN_FIRED_*.csv"
+ALERT_LOG_FILE = "static/anomaly_alerts.json"
+
+# --- TIMING & INTERVALS ---
+FLUSH_INTERVAL_SECONDS = 2
+SUBSCRIPTION_UPDATE_INTERVAL_SECONDS = 60
+SQUEEZE_UPDATE_INTERVAL_SECONDS = 10
+MARKET_OPEN_HOUR_IST = 9
+MARKET_OPEN_MINUTE_IST = 0
+MARKET_CLOSE_HOUR_IST = 15
+MARKET_CLOSE_MINUTE_IST = 30
